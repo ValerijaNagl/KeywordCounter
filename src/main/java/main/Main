@@ -1,0 +1,146 @@
+package main;
+
+import java.util.Scanner;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import file.FileScannerThreadPool;
+import model.ScanningJob;
+import retriever.ResultRetrieverThreadPool;
+import web.WebScanner;
+import web.WebScannerThreadPool;
+
+public class Main {
+	
+
+	public static void main(String[] args) {
+		 BlockingQueue<ScanningJob> jobQueue;
+		 ExecutorService pool;
+		 ConcurrentHashMap<String, Integer> lastModified;
+		 FileScannerThreadPool fileScannerThreadPool;
+		 WebScannerThreadPool webScannerThreadPool;
+		 ResultRetrieverThreadPool resultRetrieverThreadPool;
+		 JobDispatcher jobDispatcher;
+		
+		resultRetrieverThreadPool = new ResultRetrieverThreadPool();	
+		lastModified = new ConcurrentHashMap<>();
+		jobQueue = new LinkedBlockingQueue<>();
+		webScannerThreadPool = new WebScannerThreadPool(resultRetrieverThreadPool);
+		fileScannerThreadPool = new FileScannerThreadPool(resultRetrieverThreadPool);
+		resultRetrieverThreadPool.setWebScannerThreadPool(webScannerThreadPool);
+		
+	
+		jobDispatcher = new JobDispatcher(jobQueue, fileScannerThreadPool, webScannerThreadPool);
+		pool = Executors.newCachedThreadPool();
+		
+		DirectoryCrawler directoryCrawler = new DirectoryCrawler(lastModified, jobQueue, fileScannerThreadPool);
+		pool.submit(directoryCrawler);
+		pool.submit(jobDispatcher);
+		
+		Scanner sc = new Scanner(System.in);
+		String command = sc.nextLine();
+		
+		while(!command.equals("stop")) {
+			
+			if(command.startsWith("ad")) {
+				//ad src/main/java/example/data
+				// query file|corpus_riker
+				String[] arr = command.split(" ");
+				
+				if(arr.length != 2) {
+					System.out.println("Komanda ad je oblika: ad ime_direktorijuma");
+				}else {
+					directoryCrawler.addNewDirectoryForScanning(arr[1]);
+				}
+				
+			}else if(command.startsWith("aw")) {
+				
+				String[] arr = command.split(" ");
+				
+				if(arr.length != 2) {
+					System.out.println("Komanda aw je oblika: aw validan_url");
+				}else {
+					try {
+						jobQueue.put(new WebScanner(arr[1], Config.getInstance().hop_count, jobQueue, webScannerThreadPool));
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}
+				
+			}else if(command.startsWith("get file|summary")) {
+				System.out.println(resultRetrieverThreadPool.getFileSummary());
+			}else if(command.startsWith("get web|summary")) {
+				System.out.println(resultRetrieverThreadPool.getWebSummary());
+				
+			}else if(command.startsWith("query file|summary")) {
+				System.out.println(resultRetrieverThreadPool.queryFileSummary());
+			}else if(command.startsWith("query web|summary")) {
+				
+				System.out.println(resultRetrieverThreadPool.queryWebSummary());
+			}else if(command.startsWith("cfs")) {
+				System.out.println(resultRetrieverThreadPool.clearFileSummary());
+			}else if(command.startsWith("cws")) {
+				System.out.println(resultRetrieverThreadPool.clearWebSummary());
+				
+			}else if(command.startsWith("get file|")) {
+				if(goodParams(command)) {
+					String[] arr = command.split("\\|");
+					System.out.println(resultRetrieverThreadPool.getResultForCorpus(arr[1]));
+				}else {
+					System.out.println("Komanda query file je oblika: query file|ime_fajla");
+				}
+				
+			}else if(command.startsWith("query file|")) {
+				if(goodParams(command)) {
+					String[] arr = command.split("\\|");
+					System.out.println(resultRetrieverThreadPool.getQueryForCorpus(arr[1]));
+				}else {
+					System.out.println("Komanda query file je oblika: query file|ime_fajla");
+				}
+			}else if(command.startsWith("get web|")) {
+				if(goodParams(command)) {
+					String[] arr = command.split("\\|");
+					System.out.println(resultRetrieverThreadPool.getForDomain(arr[1]));
+				}else {
+					System.out.println("Komanda get web je oblika: get web|domen");
+				}
+				
+			}else if(command.startsWith("query web|")) {
+				
+				if(goodParams(command)) {
+					String[] arr = command.split("\\|");
+					System.out.println(resultRetrieverThreadPool.queryForDomain(arr[1]));
+				}else {
+					System.out.println("Komanda get query web je oblika: get web|domen");
+				}
+				
+			}else {
+				System.out.println("Komanda ne postoji.");
+			}
+				
+			command = sc.nextLine();	
+				
+		}
+		
+			
+		fileScannerThreadPool.shutdown();
+		webScannerThreadPool.shutdown();
+		resultRetrieverThreadPool.shutdown();
+		jobDispatcher.run = false;
+		directoryCrawler.run = false;
+		pool.shutdown();
+		System.out.println("Stopping...");
+		System.exit(0);
+
+	}
+	
+	public static boolean goodParams(String command) {
+		 String[] arr = command.split("\\|");
+         if (arr.length != 2) {
+			return false;
+		}
+        return true;
+	}
+}
